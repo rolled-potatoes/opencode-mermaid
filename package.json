@@ -1,6 +1,6 @@
 {
   "name": "@rolled-potatoes/opencode-mermaid",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenCode plugin — render Mermaid diagrams in the browser",
   "main": "index.ts",
   "files": [
