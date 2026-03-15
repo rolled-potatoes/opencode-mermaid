@@ -151,6 +151,7 @@ function openBrowser(filePath: string): void {
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 let _sessionID = "default"
+const _openedSessions = new Set<string>()
 
 export const MermaidPlugin: Plugin = async () => {
   return {
@@ -181,8 +182,14 @@ export const MermaidPlugin: Plugin = async () => {
         execute: async ({ code }) => {
           if (typeof code !== "string") return "Error: code must be a string"
           const path = addDiagram(code, _sessionID)
-          openBrowser(path)
-          return `Diagram opened in browser: ${path}`
+
+          if (!_openedSessions.has(_sessionID)) {
+            openBrowser(path)
+            _openedSessions.add(_sessionID)
+            return `Diagram opened in browser: ${path}`
+          }
+
+          return `Diagram updated in browser: ${path}`
         },
       }),
     },
