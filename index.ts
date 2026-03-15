@@ -12,11 +12,12 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;")
 }
 
-function makeHtml(title: string, body: string): string {
+function makeHtml(title: string, body: string, count: number): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="diagram-count" content="${count}" />
   <title>${escapeHtml(title)}</title>
   <style>
     * { box-sizing: border-box; }
@@ -82,6 +83,20 @@ ${body}  <!-- /DIAGRAMS -->
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
     mermaid.initialize({ startOnLoad: true, theme: 'default' });
   </script>
+  <script>
+    (function () {
+      var current = Number(document.querySelector('meta[name="diagram-count"]').content);
+      setInterval(function () {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', location.href, true);
+        xhr.onload = function () {
+          var m = xhr.responseText.match(/name="diagram-count" content="(\d+)"/);
+          if (m && Number(m[1]) !== current) location.reload();
+        };
+        xhr.send();
+      }, 2000);
+    })();
+  </script>
 </body>
 </html>`
 }
@@ -129,11 +144,13 @@ function addDiagram(code: string, sessionID: string): string {
     const existing = readFileSync(path, "utf8")
     const count = (existing.match(/<div class="diagram-block">/g) || []).length
     const block = makeDiagramBlock(code, count + 1)
-    const updated = existing.replace("  <!-- /DIAGRAMS -->", `${block}  <!-- /DIAGRAMS -->`)
+    const updated = existing
+      .replace("  <!-- /DIAGRAMS -->", `${block}  <!-- /DIAGRAMS -->`)
+      .replace(/name="diagram-count" content="\d+"/, `name="diagram-count" content="${count + 1}"`)
     writeFileSync(path, updated, "utf8")
   } else {
     const block = makeDiagramBlock(code, 1)
-    writeFileSync(path, makeHtml(`Mermaid · ${shortID}`, block), "utf8")
+    writeFileSync(path, makeHtml(`Mermaid · ${shortID}`, block, 1), "utf8")
   }
 
   return path
@@ -151,6 +168,7 @@ function openBrowser(filePath: string): void {
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 let _sessionID = "default"
+const _openedSessions = new Set<string>()
 
 export const MermaidPlugin: Plugin = async () => {
   return {
@@ -181,8 +199,14 @@ export const MermaidPlugin: Plugin = async () => {
         execute: async ({ code }) => {
           if (typeof code !== "string") return "Error: code must be a string"
           const path = addDiagram(code, _sessionID)
-          openBrowser(path)
-          return `Diagram opened in browser: ${path}`
+
+          if (!_openedSessions.has(_sessionID)) {
+            openBrowser(path)
+            _openedSessions.add(_sessionID)
+            return `Diagram opened in browser: ${path}`
+          }
+
+          return `Diagram updated in browser: ${path}`
         },
       }),
     },
