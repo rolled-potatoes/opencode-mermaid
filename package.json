@@ -1,0 +1,24 @@
+{
+  "name": "@rolled-potatoes/opencode-mermaid",
+  "version": "0.1.0",
+  "description": "OpenCode plugin — render Mermaid diagrams in the browser",
+  "main": "index.ts",
+  "files": [
+    "index.ts"
+  ],
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "mermaid",
+    "diagram",
+    "browser"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rolled-potatoes/opencode-mermaid"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.2.0"
+  }
+}
