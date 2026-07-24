@@ -2,6 +2,30 @@ import { tool, type Plugin } from "@opencode-ai/plugin"
 import { readFileSync, writeFileSync, existsSync } from "node:fs"
 import { execSync } from "node:child_process"
 
+// ─── Theme ───────────────────────────────────────────────────────────────────
+
+type Theme = "light" | "dark"
+
+const THEMES: Record<Theme, {
+  bodyBg: string; bodyColor: string; h1Color: string;
+  blockBg: string; borderColor: string; labelColor: string;
+  summaryColor: string; summaryHover: string; preBg: string;
+  mermaidTheme: string;
+}> = {
+  light: {
+    bodyBg: "#f8f9fa", bodyColor: "#212529", h1Color: "#adb5bd",
+    blockBg: "#fff", borderColor: "#dee2e6", labelColor: "#ced4da",
+    summaryColor: "#adb5bd", summaryHover: "#495057", preBg: "#f1f3f5",
+    mermaidTheme: "default",
+  },
+  dark: {
+    bodyBg: "#1e1e2e", bodyColor: "#cdd6f4", h1Color: "#6c7086",
+    blockBg: "#313244", borderColor: "#45475a", labelColor: "#6c7086",
+    summaryColor: "#6c7086", summaryHover: "#cdd6f4", preBg: "#181825",
+    mermaidTheme: "dark",
+  },
+}
+
 // ─── HTML Helpers ────────────────────────────────────────────────────────────
 
 function escapeHtml(str: string): string {
@@ -12,7 +36,8 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;")
 }
 
-function makeHtml(title: string, body: string, count: number): string {
+function makeHtml(title: string, body: string, count: number, theme: Theme): string {
+  const t = THEMES[theme]
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -23,21 +48,21 @@ function makeHtml(title: string, body: string, count: number): string {
     * { box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #1e1e2e;
+      background: ${t.bodyBg};
       margin: 0;
       padding: 2rem;
-      color: #cdd6f4;
+      color: ${t.bodyColor};
     }
     h1 {
       font-size: 1rem;
       font-weight: 600;
       margin: 0 0 1.5rem;
-      color: #6c7086;
+      color: ${t.h1Color};
       letter-spacing: 0.03em;
     }
     .diagram-block {
-      background: #313244;
-      border: 1px solid #45475a;
+      background: ${t.blockBg};
+      border: 1px solid ${t.borderColor};
       border-radius: 8px;
       padding: 1.5rem;
       margin-bottom: 1.25rem;
@@ -45,7 +70,7 @@ function makeHtml(title: string, body: string, count: number): string {
     .diagram-label {
       font-size: 0.7rem;
       font-weight: 700;
-      color: #6c7086;
+      color: ${t.labelColor};
       text-transform: uppercase;
       letter-spacing: 0.08em;
       margin-bottom: 1rem;
@@ -59,13 +84,13 @@ function makeHtml(title: string, body: string, count: number): string {
     summary {
       cursor: pointer;
       font-size: 0.78rem;
-      color: #6c7086;
+      color: ${t.summaryColor};
       user-select: none;
     }
-    summary:hover { color: #cdd6f4; }
+    summary:hover { color: ${t.summaryHover}; }
     details pre {
       margin-top: 0.5rem;
-      background: #181825;
+      background: ${t.preBg};
       border-radius: 4px;
       padding: 0.75rem 1rem;
       font-size: 0.78rem;
@@ -81,7 +106,7 @@ function makeHtml(title: string, body: string, count: number): string {
 ${body}  <!-- /DIAGRAMS -->
   <script type="module">
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-    mermaid.initialize({ startOnLoad: true, theme: 'dark' });
+    mermaid.initialize({ startOnLoad: true, theme: '${t.mermaidTheme}' });
   </script>
   <script>
     (function () {
@@ -136,7 +161,7 @@ function htmlPath(sessionID: string): string {
   return `/tmp/mermaid-${suffix}.html`
 }
 
-function addDiagram(code: string, sessionID: string): string {
+function addDiagram(code: string, sessionID: string, theme: Theme): string {
   const path = htmlPath(sessionID)
   const shortID = sessionID.slice(-12)
 
@@ -145,12 +170,12 @@ function addDiagram(code: string, sessionID: string): string {
     const count = (existing.match(/<div class="diagram-block">/g) || []).length
     const block = makeDiagramBlock(code, count + 1)
     const updated = existing
-      .replace("  <!-- /DIAGRAMS -->", `${block}  <!-- /DIAGRAMS -->`)
+      .replace("  <!-- /DIAGRAMS -->", `${block}  <!-- /DIAGRAMS -->")
       .replace(/name="diagram-count" content="\d+"/, `name="diagram-count" content="${count + 1}"`)
     writeFileSync(path, updated, "utf8")
   } else {
     const block = makeDiagramBlock(code, 1)
-    writeFileSync(path, makeHtml(`Mermaid · ${shortID}`, block, 1), "utf8")
+    writeFileSync(path, makeHtml(`Mermaid · ${shortID}`, block, 1, theme), "utf8")
   }
 
   return path
@@ -170,7 +195,9 @@ function openBrowser(filePath: string): void {
 let _sessionID = "default"
 const _openedSessions = new Set<string>()
 
-export const MermaidPlugin: Plugin = async () => {
+export const MermaidPlugin: Plugin = async (_input, options?: { theme?: Theme }) => {
+  const theme: Theme = options?.theme === "dark" ? "dark" : "light"
+
   return {
     "tool.execute.before": async (input, _output) => {
       if (input.tool === "render_mermaid") {
@@ -198,7 +225,7 @@ export const MermaidPlugin: Plugin = async () => {
         },
         execute: async ({ code }) => {
           if (typeof code !== "string") return "Error: code must be a string"
-          const path = addDiagram(code, _sessionID)
+          const path = addDiagram(code, _sessionID, theme)
 
           if (!_openedSessions.has(_sessionID)) {
             openBrowser(path)
