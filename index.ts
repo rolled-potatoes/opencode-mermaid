@@ -23,21 +23,21 @@ function makeHtml(title: string, body: string, count: number): string {
     * { box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f8f9fa;
+      background: #1e1e2e;
       margin: 0;
       padding: 2rem;
-      color: #212529;
+      color: #cdd6f4;
     }
     h1 {
       font-size: 1rem;
       font-weight: 600;
       margin: 0 0 1.5rem;
-      color: #adb5bd;
+      color: #6c7086;
       letter-spacing: 0.03em;
     }
     .diagram-block {
-      background: #fff;
-      border: 1px solid #dee2e6;
+      background: #313244;
+      border: 1px solid #45475a;
       border-radius: 8px;
       padding: 1.5rem;
       margin-bottom: 1.25rem;
@@ -45,7 +45,7 @@ function makeHtml(title: string, body: string, count: number): string {
     .diagram-label {
       font-size: 0.7rem;
       font-weight: 700;
-      color: #ced4da;
+      color: #6c7086;
       text-transform: uppercase;
       letter-spacing: 0.08em;
       margin-bottom: 1rem;
@@ -59,13 +59,13 @@ function makeHtml(title: string, body: string, count: number): string {
     summary {
       cursor: pointer;
       font-size: 0.78rem;
-      color: #adb5bd;
+      color: #6c7086;
       user-select: none;
     }
-    summary:hover { color: #495057; }
+    summary:hover { color: #cdd6f4; }
     details pre {
       margin-top: 0.5rem;
-      background: #f1f3f5;
+      background: #181825;
       border-radius: 4px;
       padding: 0.75rem 1rem;
       font-size: 0.78rem;
@@ -81,7 +81,7 @@ function makeHtml(title: string, body: string, count: number): string {
 ${body}  <!-- /DIAGRAMS -->
   <script type="module">
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+    mermaid.initialize({ startOnLoad: true, theme: 'dark' });
   </script>
   <script>
     (function () {
@@ -90,7 +90,7 @@ ${body}  <!-- /DIAGRAMS -->
         var xhr = new XMLHttpRequest();
         xhr.open('GET', location.href, true);
         xhr.onload = function () {
-          var m = xhr.responseText.match(/name="diagram-count" content="(\d+)"/);
+          var m = xhr.responseText.match(/name="diagram-count" content="(\\d+)"/);
           if (m && Number(m[1]) !== current) location.reload();
         };
         xhr.send();
