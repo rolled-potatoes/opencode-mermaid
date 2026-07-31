@@ -18,11 +18,21 @@ OpenCode will install it automatically on next start.
 
 ## Features
 
-- Opens diagrams in the browser via a local HTML file (`/tmp/mermaid-<sessionID>.html`)
+- Opens diagrams in the browser via a local HTML file (`<output-dir>/mermaid-<sessionID>.html`)
 - Accumulates all diagrams from a session in one file — just refresh the tab
 - Collapsible source view for each diagram
 - Cross-platform: macOS (`open`), Linux (`xdg-open`), Windows (`start`)
 - Uses [Mermaid.js v11](https://mermaid.js.org) via CDN — no build step needed
+
+## Configuration
+
+By default, diagram files are written to `/tmp/mermaid-<sessionID>.html`. To use a different directory, set the `MERMAID_OUTPUT_DIR` environment variable:
+
+```bash
+export MERMAID_OUTPUT_DIR="$HOME/.local/share/opencode/mermaid"
+```
+
+The directory is created automatically if it does not exist. To persist the variable, add the export line to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.).
 
 ## Supported diagram types
 

@@ -1,5 +1,6 @@
 import { tool, type Plugin } from "@opencode-ai/plugin"
-import { readFileSync, writeFileSync, existsSync } from "node:fs"
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
+import { dirname } from "node:path"
 import { execSync } from "node:child_process"
 
 // ─── HTML Helpers ────────────────────────────────────────────────────────────
@@ -133,12 +134,14 @@ function detectType(code: string): string {
 
 function htmlPath(sessionID: string): string {
   const suffix = sessionID.replace(/[^a-zA-Z0-9]/g, "").slice(-12)
-  return `/tmp/mermaid-${suffix}.html`
+  const outDir = (process.env.MERMAID_OUTPUT_DIR || "/tmp").replace(/\/+$/, "")
+  return `${outDir}/mermaid-${suffix}.html`
 }
 
 function addDiagram(code: string, sessionID: string): string {
   const path = htmlPath(sessionID)
   const shortID = sessionID.slice(-12)
+  mkdirSync(dirname(path), { recursive: true })
 
   if (existsSync(path)) {
     const existing = readFileSync(path, "utf8")
