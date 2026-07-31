@@ -26,13 +26,23 @@ OpenCode will install it automatically on next start.
 
 ## Configuration
 
-By default, diagram files are written to `/tmp/mermaid-<sessionID>.html`. To use a different directory, set the `MERMAID_OUTPUT_DIR` environment variable:
+The output directory is resolved with the following priority:
 
-```bash
-export MERMAID_OUTPUT_DIR="$HOME/.local/share/opencode/mermaid"
-```
+1. **Per project**: a `.opencode/mermaid.json` file in the project root with an `outputDir` field (relative paths are resolved against the project root). This wins over everything else:
 
-The directory is created automatically if it does not exist. To persist the variable, add the export line to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.).
+   ```json
+   { "outputDir": ".diagrams" }
+   ```
+
+2. **Global**: the `MERMAID_OUTPUT_DIR` environment variable:
+
+   ```bash
+   export MERMAID_OUTPUT_DIR="$HOME/.local/share/opencode/mermaid"
+   ```
+
+3. **Fallback**: `/tmp`
+
+The directory is created automatically if it does not exist. To persist the global env var, add the export line to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.).
 
 ## Supported diagram types
 

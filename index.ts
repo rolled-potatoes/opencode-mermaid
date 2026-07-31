@@ -1,6 +1,6 @@
 import { tool, type Plugin } from "@opencode-ai/plugin"
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
-import { dirname } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { execSync } from "node:child_process"
 
 // ─── HTML Helpers ────────────────────────────────────────────────────────────
@@ -132,14 +132,42 @@ function detectType(code: string): string {
 
 // ─── Session-scoped file path ─────────────────────────────────────────────────
 
-function htmlPath(sessionID: string): string {
+/**
+ * Resolve the output directory with the following priority:
+ *  1. Project config: `.opencode/mermaid.json` with `{ "outputDir": "..." }`
+ *     (relative paths are resolved against the project root)
+ *  2. Global env var: `MERMAID_OUTPUT_DIR`
+ *  3. Fallback: `/tmp`
+ */
+function resolveOutputDir(directory: string | undefined): string {
+  if (directory) {
+    try {
+      const configPath = join(directory, ".opencode", "mermaid.json")
+      if (existsSync(configPath)) {
+        const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+          outputDir?: unknown
+        }
+        if (typeof config.outputDir === "string" && config.outputDir) {
+          return resolve(directory, config.outputDir)
+        }
+      }
+    } catch (e) {
+      console.error("[opencode-mermaid] error reading .opencode/mermaid.json:", e)
+    }
+  }
+  if (process.env.MERMAID_OUTPUT_DIR) {
+    return process.env.MERMAID_OUTPUT_DIR.replace(/\/+$/, "")
+  }
+  return "/tmp"
+}
+
+function htmlPath(sessionID: string, outDir: string): string {
   const suffix = sessionID.replace(/[^a-zA-Z0-9]/g, "").slice(-12)
-  const outDir = (process.env.MERMAID_OUTPUT_DIR || "/tmp").replace(/\/+$/, "")
   return `${outDir}/mermaid-${suffix}.html`
 }
 
-function addDiagram(code: string, sessionID: string): string {
-  const path = htmlPath(sessionID)
+function addDiagram(code: string, sessionID: string, outDir: string): string {
+  const path = htmlPath(sessionID, outDir)
   const shortID = sessionID.slice(-12)
   mkdirSync(dirname(path), { recursive: true })
 
@@ -173,7 +201,8 @@ function openBrowser(filePath: string): void {
 let _sessionID = "default"
 const _openedSessions = new Set<string>()
 
-export const MermaidPlugin: Plugin = async () => {
+export const MermaidPlugin: Plugin = async ({ directory }) => {
+  const outDir = resolveOutputDir(directory)
   return {
     "tool.execute.before": async (input, _output) => {
       if (input.tool === "render_mermaid") {
@@ -201,7 +230,7 @@ export const MermaidPlugin: Plugin = async () => {
         },
         execute: async ({ code }) => {
           if (typeof code !== "string") return "Error: code must be a string"
-          const path = addDiagram(code, _sessionID)
+          const path = addDiagram(code, _sessionID, outDir)
 
           if (!_openedSessions.has(_sessionID)) {
             openBrowser(path)
