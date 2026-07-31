@@ -1,6 +1,7 @@
 import { tool, type Plugin } from "@opencode-ai/plugin"
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
+import { createServer, type Server } from "node:http"
 import { execSync } from "node:child_process"
 
 // ─── HTML Helpers ────────────────────────────────────────────────────────────
@@ -196,6 +197,68 @@ function openBrowser(filePath: string): void {
   else execSync(`start "" "${filePath}"`)
 }
 
+// ─── Local HTTP server ─────────────────────────────────────────────────────────
+// file:// URLs block XHR polling (CORS), so diagrams are served over localhost
+// to make the auto-reload in the generated HTML actually work.
+
+const _servedDirs = new Set<string>()
+let _server: Server | null = null
+let _serverInit: Promise<number> | null = null
+
+function ensureServer(outDir: string): Promise<number> {
+  _servedDirs.add(outDir)
+  if (_serverInit) return _serverInit
+
+  _serverInit = (async () => {
+    _server = createServer((req, res) => {
+      const url = new URL(req.url || "/", "http://127.0.0.1")
+      const filePath = url.searchParams.get("file")
+      if (!filePath) {
+        res.writeHead(400)
+        res.end("missing ?file= parameter")
+        return
+      }
+
+      const resolved = resolve(filePath)
+      const allowed = [..._servedDirs].some((dir) => {
+        const base = resolve(dir)
+        return resolved === base || resolved.startsWith(base + "/")
+      })
+      if (!allowed) {
+        res.writeHead(403)
+        res.end("forbidden")
+        return
+      }
+
+      try {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
+        res.end(readFileSync(resolved))
+      } catch {
+        res.writeHead(404)
+        res.end("not found")
+      }
+    })
+
+    await new Promise<void>((ok, fail) => {
+      _server!.once("error", fail)
+      _server!.listen(0, "127.0.0.1", () => {
+        _server!.off("error", fail)
+        ok()
+      })
+    })
+
+    const addr = _server!.address()
+    if (!addr || typeof addr === "string") throw new Error("failed to bind local server")
+    return addr.port
+  })()
+
+  return _serverInit
+}
+
+function serveUrl(port: number, filePath: string): string {
+  return `http://127.0.0.1:${port}/?file=${encodeURIComponent(filePath)}`
+}
+
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 let _sessionID = "default"
@@ -231,14 +294,16 @@ export const MermaidPlugin: Plugin = async ({ directory }) => {
         execute: async ({ code }) => {
           if (typeof code !== "string") return "Error: code must be a string"
           const path = addDiagram(code, _sessionID, outDir)
+          const port = await ensureServer(outDir)
+          const url = serveUrl(port, path)
 
           if (!_openedSessions.has(_sessionID)) {
-            openBrowser(path)
+            openBrowser(url)
             _openedSessions.add(_sessionID)
-            return `Diagram opened in browser: ${path}`
+            return `Diagram opened in browser: ${url}`
           }
 
-          return `Diagram updated in browser: ${path}`
+          return `Diagram updated in browser: ${url}`
         },
       }),
     },

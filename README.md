@@ -18,8 +18,8 @@ OpenCode will install it automatically on next start.
 
 ## Features
 
-- Opens diagrams in the browser via a local HTML file (`<output-dir>/mermaid-<sessionID>.html`)
-- Accumulates all diagrams from a session in one file — just refresh the tab
+- Opens diagrams in the browser via a local HTTP server (`http://127.0.0.1:<port>`) with **working auto-reload**: new diagrams appear in the open tab without manual refresh
+- Accumulates all diagrams from a session in one file
 - Collapsible source view for each diagram
 - Cross-platform: macOS (`open`), Linux (`xdg-open`), Windows (`start`)
 - Uses [Mermaid.js v11](https://mermaid.js.org) via CDN — no build step needed
