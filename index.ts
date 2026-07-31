@@ -231,7 +231,10 @@ function ensureServer(outDir: string): Promise<number> {
       }
 
       try {
-        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" })
+        res.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+        })
         res.end(readFileSync(resolved))
       } catch {
         res.writeHead(404)
