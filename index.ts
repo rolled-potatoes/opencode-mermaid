@@ -1,7 +1,7 @@
 import { tool, type Plugin } from "@opencode-ai/plugin"
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
-import { createServer, type Server } from "node:http"
+import { createServer, type Server, type ServerResponse } from "node:http"
 import { execSync } from "node:child_process"
 
 // ─── HTML Helpers ────────────────────────────────────────────────────────────
@@ -86,18 +86,8 @@ ${body}  <!-- /DIAGRAMS -->
     mermaid.initialize({ startOnLoad: true, theme: 'default' });
   </script>
   <script>
-    (function () {
-      var current = Number(document.querySelector('meta[name="diagram-count"]').content);
-      setInterval(function () {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', location.href, true);
-        xhr.onload = function () {
-          var m = xhr.responseText.match(/name="diagram-count" content="(\d+)"/);
-          if (m && Number(m[1]) !== current) location.reload();
-        };
-        xhr.send();
-      }, 2000);
-    })();
+    var es = new EventSource('/events');
+    es.onmessage = function () { location.reload(); };
   </script>
 </body>
 </html>`
@@ -202,8 +192,15 @@ function openBrowser(filePath: string): void {
 // to make the auto-reload in the generated HTML actually work.
 
 const _servedDirs = new Set<string>()
+const _sseClients = new Set<ServerResponse>()
 let _server: Server | null = null
 let _serverInit: Promise<number> | null = null
+
+function notifySSE(): void {
+  for (const client of _sseClients) {
+    client.write("data: reload\n\n")
+  }
+}
 
 function ensureServer(outDir: string): Promise<number> {
   _servedDirs.add(outDir)
@@ -212,6 +209,19 @@ function ensureServer(outDir: string): Promise<number> {
   _serverInit = (async () => {
     _server = createServer((req, res) => {
       const url = new URL(req.url || "/", "http://127.0.0.1")
+
+      if (url.pathname === "/events") {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-store",
+          Connection: "keep-alive",
+        })
+        res.write(":ok\n\n")
+        _sseClients.add(res)
+        req.on("close", () => _sseClients.delete(res))
+        return
+      }
+
       const filePath = url.searchParams.get("file")
       if (!filePath) {
         res.writeHead(400)
@@ -297,6 +307,7 @@ export const MermaidPlugin: Plugin = async ({ directory }) => {
         execute: async ({ code }) => {
           if (typeof code !== "string") return "Error: code must be a string"
           const path = addDiagram(code, _sessionID, outDir)
+          notifySSE()
           const port = await ensureServer(outDir)
           const url = serveUrl(port, path)
 
