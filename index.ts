@@ -1,5 +1,7 @@
 import { tool, type Plugin } from "@opencode-ai/plugin"
-import { readFileSync, writeFileSync, existsSync } from "node:fs"
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
+import { dirname, join, resolve } from "node:path"
+import { createServer, type Server, type ServerResponse } from "node:http"
 import { execSync } from "node:child_process"
 
 // ─── HTML Helpers ────────────────────────────────────────────────────────────
@@ -84,18 +86,8 @@ ${body}  <!-- /DIAGRAMS -->
     mermaid.initialize({ startOnLoad: true, theme: 'default' });
   </script>
   <script>
-    (function () {
-      var current = Number(document.querySelector('meta[name="diagram-count"]').content);
-      setInterval(function () {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', location.href, true);
-        xhr.onload = function () {
-          var m = xhr.responseText.match(/name="diagram-count" content="(\d+)"/);
-          if (m && Number(m[1]) !== current) location.reload();
-        };
-        xhr.send();
-      }, 2000);
-    })();
+    var es = new EventSource('/events');
+    es.onmessage = function () { location.reload(); };
   </script>
 </body>
 </html>`
@@ -131,14 +123,44 @@ function detectType(code: string): string {
 
 // ─── Session-scoped file path ─────────────────────────────────────────────────
 
-function htmlPath(sessionID: string): string {
-  const suffix = sessionID.replace(/[^a-zA-Z0-9]/g, "").slice(-12)
-  return `/tmp/mermaid-${suffix}.html`
+/**
+ * Resolve the output directory with the following priority:
+ *  1. Project config: `.opencode/mermaid.json` with `{ "outputDir": "..." }`
+ *     (relative paths are resolved against the project root)
+ *  2. Global env var: `MERMAID_OUTPUT_DIR`
+ *  3. Fallback: `/tmp`
+ */
+function resolveOutputDir(directory: string | undefined): string {
+  if (directory) {
+    try {
+      const configPath = join(directory, ".opencode", "mermaid.json")
+      if (existsSync(configPath)) {
+        const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+          outputDir?: unknown
+        }
+        if (typeof config.outputDir === "string" && config.outputDir) {
+          return resolve(directory, config.outputDir)
+        }
+      }
+    } catch (e) {
+      console.error("[opencode-mermaid] error reading .opencode/mermaid.json:", e)
+    }
+  }
+  if (process.env.MERMAID_OUTPUT_DIR) {
+    return process.env.MERMAID_OUTPUT_DIR.replace(/\/+$/, "")
+  }
+  return "/tmp"
 }
 
-function addDiagram(code: string, sessionID: string): string {
-  const path = htmlPath(sessionID)
+function htmlPath(sessionID: string, outDir: string): string {
+  const suffix = sessionID.replace(/[^a-zA-Z0-9]/g, "").slice(-12)
+  return `${outDir}/mermaid-${suffix}.html`
+}
+
+function addDiagram(code: string, sessionID: string, outDir: string): string {
+  const path = htmlPath(sessionID, outDir)
   const shortID = sessionID.slice(-12)
+  mkdirSync(dirname(path), { recursive: true })
 
   if (existsSync(path)) {
     const existing = readFileSync(path, "utf8")
@@ -165,12 +187,98 @@ function openBrowser(filePath: string): void {
   else execSync(`start "" "${filePath}"`)
 }
 
+// ─── Local HTTP server ─────────────────────────────────────────────────────────
+// file:// URLs block XHR polling (CORS), so diagrams are served over localhost
+// to make the auto-reload in the generated HTML actually work.
+
+const _servedDirs = new Set<string>()
+const _sseClients = new Set<ServerResponse>()
+let _server: Server | null = null
+let _serverInit: Promise<number> | null = null
+
+function notifySSE(): void {
+  for (const client of _sseClients) {
+    client.write("data: reload\n\n")
+  }
+}
+
+function ensureServer(outDir: string): Promise<number> {
+  _servedDirs.add(outDir)
+  if (_serverInit) return _serverInit
+
+  _serverInit = (async () => {
+    _server = createServer((req, res) => {
+      const url = new URL(req.url || "/", "http://127.0.0.1")
+
+      if (url.pathname === "/events") {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-store",
+          Connection: "keep-alive",
+        })
+        res.write(":ok\n\n")
+        _sseClients.add(res)
+        req.on("close", () => _sseClients.delete(res))
+        return
+      }
+
+      const filePath = url.searchParams.get("file")
+      if (!filePath) {
+        res.writeHead(400)
+        res.end("missing ?file= parameter")
+        return
+      }
+
+      const resolved = resolve(filePath)
+      const allowed = [..._servedDirs].some((dir) => {
+        const base = resolve(dir)
+        return resolved === base || resolved.startsWith(base + "/")
+      })
+      if (!allowed) {
+        res.writeHead(403)
+        res.end("forbidden")
+        return
+      }
+
+      try {
+        res.writeHead(200, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+        })
+        res.end(readFileSync(resolved))
+      } catch {
+        res.writeHead(404)
+        res.end("not found")
+      }
+    })
+
+    await new Promise<void>((ok, fail) => {
+      _server!.once("error", fail)
+      _server!.listen(0, "127.0.0.1", () => {
+        _server!.off("error", fail)
+        ok()
+      })
+    })
+
+    const addr = _server!.address()
+    if (!addr || typeof addr === "string") throw new Error("failed to bind local server")
+    return addr.port
+  })()
+
+  return _serverInit
+}
+
+function serveUrl(port: number, filePath: string): string {
+  return `http://127.0.0.1:${port}/?file=${encodeURIComponent(filePath)}`
+}
+
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 let _sessionID = "default"
 const _openedSessions = new Set<string>()
 
-export const MermaidPlugin: Plugin = async () => {
+export const MermaidPlugin: Plugin = async ({ directory }) => {
+  const outDir = resolveOutputDir(directory)
   return {
     "tool.execute.before": async (input, _output) => {
       if (input.tool === "render_mermaid") {
@@ -198,15 +306,18 @@ export const MermaidPlugin: Plugin = async () => {
         },
         execute: async ({ code }) => {
           if (typeof code !== "string") return "Error: code must be a string"
-          const path = addDiagram(code, _sessionID)
+          const path = addDiagram(code, _sessionID, outDir)
+          notifySSE()
+          const port = await ensureServer(outDir)
+          const url = serveUrl(port, path)
 
           if (!_openedSessions.has(_sessionID)) {
-            openBrowser(path)
+            openBrowser(url)
             _openedSessions.add(_sessionID)
-            return `Diagram opened in browser: ${path}`
+            return `Diagram opened in browser: ${url}`
           }
 
-          return `Diagram updated in browser: ${path}`
+          return `Diagram updated in browser: ${url}`
         },
       }),
     },
